@@ -79,7 +79,7 @@ if page == "Overview":
         color_continuous_scale='Blues'
     )
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # Attendance by shift
     col1, col2 = st.columns(2)
@@ -93,13 +93,13 @@ if page == "Overview":
             ORDER BY records DESC
         """)
         fig = px.pie(shift_df, values='records', names='shift', hole=0.4)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col2:
         st.subheader("Hours by Shift")
         fig = px.bar(shift_df, x='shift', y='hours', color='shift')
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 # Employees Page
 elif page == "Employees":
@@ -132,7 +132,7 @@ elif page == "Employees":
 
     st.dataframe(
         employees_df,
-        use_container_width=True,
+        width='stretch',
         hide_index=True,
         column_config={
             "employee_id": "Employee ID",
@@ -161,7 +161,7 @@ elif page == "Benefits":
             FROM metrics.headcount_metrics
             ORDER BY employee_count DESC
         """)
-        st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+        st.dataframe(metrics_df, width='stretch', hide_index=True)
 
     with col2:
         st.subheader("Top Plans by Enrollment")
@@ -172,7 +172,7 @@ elif page == "Benefits":
             color='avg_arrears',
             color_continuous_scale='RdYlGn_r'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     st.divider()
 
@@ -201,7 +201,7 @@ elif page == "Benefits":
         """
 
     detail_df = run_query(detail_query)
-    st.dataframe(detail_df, use_container_width=True, hide_index=True)
+    st.dataframe(detail_df, width='stretch', hide_index=True)
 
 # Attendance Page
 elif page == "Attendance":
@@ -226,7 +226,7 @@ elif page == "Attendance":
             color='shift',
             barmode='group'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col2:
         st.subheader("Employee Count by Shift")
@@ -236,7 +236,7 @@ elif page == "Attendance":
         }).reset_index()
         fig = px.bar(shift_summary, x='shift', y='employee_count', color='shift')
         fig.update_layout(showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     st.divider()
 
@@ -249,7 +249,7 @@ elif page == "Attendance":
         ORDER BY employee_id, week_number
         LIMIT 500
     """)
-    st.dataframe(detail_df, use_container_width=True, hide_index=True)
+    st.dataframe(detail_df, width='stretch', hide_index=True)
 
 # Activity Log Page
 elif page == "Activity Log":
@@ -276,13 +276,13 @@ elif page == "Activity Log":
         with col1:
             st.subheader("Activity by Module")
             fig = px.pie(module_counts, values='count', names='module')
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
         with col2:
             st.subheader("Recent Activity")
             st.dataframe(
                 activity_df[['activity_timestamp', 'module', 'activity_type', 'entered_by']],
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
     else:
