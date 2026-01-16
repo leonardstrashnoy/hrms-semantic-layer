@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+import ollama
 
 # Page config
 st.set_page_config(
@@ -38,7 +39,7 @@ def run_query(query):
 st.sidebar.title("HRMS Dashboard")
 page = st.sidebar.radio(
     "Navigate",
-    ["Overview", "Employees", "Benefits", "Attendance", "Activity Log"]
+    ["Overview", "Employees", "Benefits", "Attendance", "Activity Log", "AI Query"]
 )
 
 # Overview Page
@@ -287,6 +288,139 @@ elif page == "Activity Log":
             )
     else:
         st.warning("No activity log data available")
+
+# AI Query Page
+elif page == "AI Query":
+    st.title("AI-Powered Query")
+    st.caption("Ask questions about your HRMS data in natural language")
+
+    # Get available models
+    @st.cache_data(ttl=60)
+    def get_ollama_models():
+        try:
+            models = ollama.list()
+            return [m.model for m in models.models]
+        except Exception as e:
+            return []
+
+    models = get_ollama_models()
+
+    if not models:
+        st.error("No Ollama models found. Make sure Ollama is running.")
+        st.code("ollama serve", language="bash")
+    else:
+        # Model selection
+        selected_model = st.selectbox("Select Model", models)
+
+        # Show database schema
+        with st.expander("View Database Schema", expanded=False):
+            schema_info = run_query("""
+                SELECT table_schema, table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema IN ('staging', 'business', 'metrics')
+                ORDER BY table_schema, table_name, ordinal_position
+            """)
+            st.dataframe(schema_info, width='stretch', hide_index=True)
+
+        # Build schema context for the model
+        @st.cache_data
+        def get_schema_context():
+            schema_df = conn.execute("""
+                SELECT table_schema || '.' || table_name as table_name,
+                       STRING_AGG(column_name || ' (' || data_type || ')', ', ') as columns
+                FROM information_schema.columns
+                WHERE table_schema IN ('staging', 'business', 'metrics')
+                GROUP BY table_schema, table_name
+                ORDER BY table_schema, table_name
+            """).fetchdf()
+            context = "Available tables and columns:\n\n"
+            for _, row in schema_df.iterrows():
+                context += f"- {row['table_name']}: {row['columns']}\n"
+            return context
+
+        schema_context = get_schema_context()
+
+        # Query input
+        user_question = st.text_area(
+            "Ask a question about your HRMS data",
+            placeholder="e.g., How many employees are enrolled in each benefit plan type?",
+            height=100
+        )
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            generate_btn = st.button("Generate SQL", type="primary")
+
+        # Session state for generated SQL
+        if 'generated_sql' not in st.session_state:
+            st.session_state.generated_sql = ""
+
+        if generate_btn and user_question:
+            with st.spinner(f"Generating SQL with {selected_model}..."):
+                prompt = f"""You are a SQL expert. Generate a DuckDB SQL query to answer the user's question.
+
+{schema_context}
+
+Important notes:
+- Use DuckDB SQL syntax
+- Only use tables and columns from the schema above
+- Return ONLY the SQL query, no explanations
+- Use appropriate JOINs when needed
+- Limit results to 100 rows unless the user asks for more
+
+User question: {user_question}
+
+SQL query:"""
+
+                try:
+                    response = ollama.generate(model=selected_model, prompt=prompt)
+                    generated_sql = response.response.strip()
+                    # Clean up the response - remove markdown code blocks if present
+                    if generated_sql.startswith("```"):
+                        lines = generated_sql.split("\n")
+                        generated_sql = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
+                    st.session_state.generated_sql = generated_sql
+                except Exception as e:
+                    st.error(f"Error generating SQL: {e}")
+
+        # Show and edit generated SQL
+        if st.session_state.generated_sql:
+            st.subheader("Generated SQL")
+            edited_sql = st.text_area(
+                "Edit SQL if needed",
+                value=st.session_state.generated_sql,
+                height=150,
+                label_visibility="collapsed"
+            )
+
+            if st.button("Execute Query"):
+                with st.spinner("Running query..."):
+                    try:
+                        result_df = conn.execute(edited_sql).fetchdf()
+                        st.success(f"Query returned {len(result_df)} rows")
+                        st.dataframe(result_df, width='stretch', hide_index=True)
+
+                        # Offer to visualize if numeric columns exist
+                        numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
+                        if len(numeric_cols) > 0 and len(result_df) > 1:
+                            st.subheader("Quick Visualization")
+                            chart_type = st.selectbox("Chart Type", ["Bar", "Line", "Pie"])
+
+                            all_cols = result_df.columns.tolist()
+                            x_col = st.selectbox("X-axis / Labels", all_cols)
+                            y_col = st.selectbox("Y-axis / Values", numeric_cols)
+
+                            if chart_type == "Bar":
+                                fig = px.bar(result_df, x=x_col, y=y_col)
+                            elif chart_type == "Line":
+                                fig = px.line(result_df, x=x_col, y=y_col)
+                            else:
+                                fig = px.pie(result_df, names=x_col, values=y_col)
+
+                            st.plotly_chart(fig, width='stretch')
+
+                    except Exception as e:
+                        st.error(f"Query error: {e}")
 
 # Footer
 st.sidebar.divider()
