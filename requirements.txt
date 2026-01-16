@@ -1,0 +1,6 @@
+duckdb>=0.10.0
+pymssql>=2.2.0
+pyyaml>=6.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+sqlalchemy>=2.0.0

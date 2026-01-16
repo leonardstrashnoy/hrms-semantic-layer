@@ -1,0 +1,33 @@
+sql_server:
+  host: "192.168.20.203"
+  port: 1433
+  database: "hrmsdb"
+  schema: "dbo"
+  username: "your_username"
+  password: "your_password"
+  driver: "ODBC Driver 17 for SQL Server"  # Not used - pymssql doesn't need this
+
+duckdb:
+  database_path: "hrmsdb.duckdb"
+  memory_limit: "3GB"
+  threads: 4
+
+sync:
+  batch_size: 10000
+  activity_log_days: 30  # Only import last 30 days for activity_log tables
+  tables:
+    # Activity logs (will be filtered to last 30 days)
+    - "Activity_Log"
+    # Attendance data
+    - "Attendance_031820"
+    - "Attendance_031920"
+    - "Attendanceddta_031920"
+    # Payroll data
+    - "CRMC_Payroll File 03012021"
+    - "CRMC_Payroll File 03152021"
+    - "CRMC_PayrollFile"
+    - "CRMC_PayrollFile11132020"
+    # 1099 and 401k tables
+    - "1099emps_050420"
+    - "401kdata_031522"
+    - "401kreport_071620"
