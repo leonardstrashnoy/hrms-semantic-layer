@@ -41,13 +41,28 @@ class SemanticLayerInitializer:
         print("✓ Connected to DuckDB")
 
     def connect_sql_server(self):
-        """Connect to SQL Server using pymssql."""
+        """Connect to SQL Server using pymssql.
+
+        Credentials are read from environment variables first,
+        falling back to config.yaml values.
+        """
         sql_config = self.config['sql_server']
+
+        # Get credentials from env vars (preferred) or config (fallback)
+        username = os.getenv('SQL_SERVER_USERNAME') or sql_config.get('username')
+        password = os.getenv('SQL_SERVER_PASSWORD') or sql_config.get('password')
+
+        if not username or not password:
+            raise ValueError(
+                "SQL Server credentials not found. Set SQL_SERVER_USERNAME and "
+                "SQL_SERVER_PASSWORD environment variables, or add them to config.yaml"
+            )
+
         return pymssql.connect(
             server=sql_config['host'],
             port=sql_config['port'],
-            user=sql_config['username'],
-            password=sql_config['password'],
+            user=username,
+            password=password,
             database=sql_config['database']
         )
 

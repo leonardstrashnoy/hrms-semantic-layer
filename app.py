@@ -22,7 +22,7 @@ st.set_page_config(
 # Database connection
 @st.cache_resource
 def get_connection():
-    db_path = Path(__file__).parent / "hrmsdb.duckdb"
+    db_path = Path(__file__).parent / "data" / "hrmsdb.duckdb"
     if not db_path.exists():
         st.error("Database not found. Run `python init_semantic_layer.py` first.")
         st.stop()
@@ -34,6 +34,10 @@ conn = get_connection()
 @st.cache_data(ttl=300)
 def run_query(query):
     return conn.execute(query).fetchdf()
+
+def run_query_safe(query, params):
+    """Run a parameterized query (not cached due to dynamic params)."""
+    return conn.execute(query, params).fetchdf()
 
 # Sidebar navigation
 st.sidebar.title("HRMS Dashboard")
@@ -111,15 +115,17 @@ elif page == "Employees":
 
     # Get employees
     if search:
-        query = f"""
+        query = """
             SELECT employee_id, full_name, num_benefit_plans, benefit_plan_types,
                    total_current_arrears, corp_id
             FROM business.employee_summary
-            WHERE LOWER(full_name) LIKE '%{search.lower()}%'
-               OR employee_id LIKE '%{search}%'
+            WHERE LOWER(full_name) LIKE LOWER(?)
+               OR employee_id LIKE ?
             ORDER BY full_name
             LIMIT 100
         """
+        search_pattern = f"%{search}%"
+        employees_df = run_query_safe(query, [search_pattern, search_pattern])
     else:
         query = """
             SELECT employee_id, full_name, num_benefit_plans, benefit_plan_types,
@@ -128,8 +134,7 @@ elif page == "Employees":
             ORDER BY full_name
             LIMIT 100
         """
-
-    employees_df = run_query(query)
+        employees_df = run_query(query)
 
     st.dataframe(
         employees_df,
@@ -192,16 +197,16 @@ elif page == "Benefits":
             FROM business.payroll_detail
             LIMIT 500
         """
+        detail_df = run_query(detail_query)
     else:
-        detail_query = f"""
+        detail_query = """
             SELECT employee_id, full_name, benefit_plan_type, benefit_plan_name,
                    coverage_tier, current_arrears, total_arrears
             FROM business.payroll_detail
-            WHERE benefit_plan_type = '{plan_filter}'
+            WHERE benefit_plan_type = ?
             LIMIT 500
         """
-
-    detail_df = run_query(detail_query)
+        detail_df = run_query_safe(detail_query, [plan_filter])
     st.dataframe(detail_df, width='stretch', hide_index=True)
 
 # Attendance Page

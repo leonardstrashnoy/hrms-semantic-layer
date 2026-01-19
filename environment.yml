@@ -1,0 +1,25 @@
+name: hrms
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  # Core dependencies
+  - duckdb>=0.10.0
+  - pandas>=2.0.0
+  - pyyaml>=6.0
+  - python-dotenv>=1.0.0
+  - sqlalchemy>=2.0.0
+  # Web UI
+  - streamlit>=1.30.0
+  - plotly>=5.18.0
+  # Dev tools
+  - jupyter
+  - ipykernel
+  - black
+  - ruff
+  # Pip-only packages
+  - pip:
+    - pymssql>=2.2.0
+    - ollama>=0.1.0
