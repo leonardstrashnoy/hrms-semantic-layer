@@ -10,11 +10,12 @@ import yaml
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-import pymssql
+from urllib.parse import quote_plus
+from sqlalchemy import create_engine, text
 import pandas as pd
 
-# Load environment variables
-load_dotenv()
+# Load environment variables (interpolate=False to preserve $ in passwords)
+load_dotenv(interpolate=False, override=True)
 
 
 class SemanticLayerInitializer:
@@ -31,6 +32,10 @@ class SemanticLayerInitializer:
         print(f"Connecting to DuckDB at {self.duckdb_path}...")
         self.conn = duckdb.connect(self.duckdb_path)
 
+        # Install and load extensions
+        for ext in ['fts', 'excel', 'vss', 'httpfs']:
+            self.conn.execute(f"INSTALL {ext}; LOAD {ext};")
+
         # Configure DuckDB
         memory_limit = self.config['duckdb'].get('memory_limit', '4GB')
         threads = self.config['duckdb'].get('threads', 4)
@@ -41,7 +46,7 @@ class SemanticLayerInitializer:
         print("✓ Connected to DuckDB")
 
     def connect_sql_server(self):
-        """Connect to SQL Server using pymssql.
+        """Connect to SQL Server using SQLAlchemy with pymssql driver.
 
         Credentials are read from environment variables first,
         falling back to config.yaml values.
@@ -58,26 +63,28 @@ class SemanticLayerInitializer:
                 "SQL_SERVER_PASSWORD environment variables, or add them to config.yaml"
             )
 
-        return pymssql.connect(
-            server=sql_config['host'],
-            port=sql_config['port'],
-            user=username,
-            password=password,
-            database=sql_config['database']
+        # URL-encode credentials to handle special characters
+        encoded_password = quote_plus(password)
+        connection_string = (
+            f"mssql+pymssql://{username}:{encoded_password}@"
+            f"{sql_config['host']}:{sql_config['port']}/{sql_config['database']}"
         )
+        return create_engine(connection_string)
 
     def setup_sql_server_attachment(self):
-        """Test SQL Server connection using pymssql."""
+        """Test SQL Server connection using SQLAlchemy."""
         print("\nSetting up SQL Server connection...")
 
         sql_config = self.config['sql_server']
 
         try:
-            # Test connection with pymssql
+            # Test connection with SQLAlchemy
             print(f"  Connecting to SQL Server at {sql_config['host']}...")
-            mssql_conn = self.connect_sql_server()
-            mssql_conn.close()
-            print("  ✓ SQL Server connection successful (using pymssql)")
+            engine = self.connect_sql_server()
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            engine.dispose()
+            print("  ✓ SQL Server connection successful (using SQLAlchemy + pymssql)")
 
             # Store connection info for metadata
             self.conn.execute("""
@@ -99,7 +106,7 @@ class SemanticLayerInitializer:
 
             print("  ✓ Connection info stored")
             print("\n  NOTE: Data will be imported from SQL Server into DuckDB tables")
-            print("  Using pymssql (ARM Mac compatible)")
+            print("  Using SQLAlchemy + pymssql (ARM Mac compatible)")
 
         except Exception as e:
             print(f"  ⚠️  Warning: Could not connect to SQL Server: {e}")
@@ -161,7 +168,7 @@ class SemanticLayerInitializer:
             days_back: Optional number of days to look back (filters data)
         """
         try:
-            mssql_conn = self.connect_sql_server()
+            engine = self.connect_sql_server()
 
             # Handle table names with special characters (including embedded quotes)
             clean_name = sql_table_name.strip("'\"")
@@ -177,8 +184,8 @@ class SemanticLayerInitializer:
                 query = f"SELECT * FROM {escaped_name}"
 
             # Read data into pandas DataFrame
-            df = pd.read_sql(query, mssql_conn)
-            mssql_conn.close()
+            df = pd.read_sql(query, engine)
+            engine.dispose()
 
             # Insert into DuckDB - split schema and table name for proper creation
             if '.' in duckdb_table_name:

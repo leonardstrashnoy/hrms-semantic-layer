@@ -26,7 +26,9 @@ def get_connection():
     if not db_path.exists():
         st.error("Database not found. Run `python init_semantic_layer.py` first.")
         st.stop()
-    return duckdb.connect(str(db_path), read_only=True)
+    conn = duckdb.connect(str(db_path), read_only=True)
+    conn.execute("LOAD fts; LOAD excel; LOAD vss; LOAD httpfs;")
+    return conn
 
 conn = get_connection()
 
