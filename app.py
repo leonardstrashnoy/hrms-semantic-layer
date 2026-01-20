@@ -314,18 +314,8 @@ elif page == "AI Query":
         st.error("No Ollama models found. Make sure Ollama is running.")
         st.code("ollama serve", language="bash")
     else:
-        # Model selection
-        selected_model = st.selectbox("Select Model", models)
-
-        # Show database schema
-        with st.expander("View Database Schema", expanded=False):
-            schema_info = run_query("""
-                SELECT table_schema, table_name, column_name, data_type
-                FROM information_schema.columns
-                WHERE table_schema IN ('staging', 'business', 'metrics')
-                ORDER BY table_schema, table_name, ordinal_position
-            """)
-            st.dataframe(schema_info, width='stretch', hide_index=True)
+        # Model selection in sidebar for cleaner UI
+        selected_model = st.sidebar.selectbox("AI Model", models)
 
         # Build schema context for the model
         @st.cache_data
@@ -345,23 +335,24 @@ elif page == "AI Query":
 
         schema_context = get_schema_context()
 
-        # Query input
-        user_question = st.text_area(
-            "Ask a question about your HRMS data",
-            placeholder="e.g., How many employees are enrolled in each benefit plan type?",
-            height=100
-        )
-
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            generate_btn = st.button("Generate SQL", type="primary")
-
-        # Session state for generated SQL
+        # Session state initialization
         if 'generated_sql' not in st.session_state:
             st.session_state.generated_sql = ""
+        if 'query_result' not in st.session_state:
+            st.session_state.query_result = None
+        if 'query_error' not in st.session_state:
+            st.session_state.query_error = None
 
-        if generate_btn and user_question:
-            with st.spinner(f"Generating SQL with {selected_model}..."):
+        # Query input
+        user_question = st.text_input(
+            "Ask a question about your HRMS data",
+            placeholder="e.g., How many employees are enrolled in each benefit plan type?"
+        )
+
+        ask_btn = st.button("Ask", type="primary", use_container_width=True)
+
+        if ask_btn and user_question:
+            with st.spinner(f"Generating and running query..."):
                 prompt = f"""You are a SQL expert. Generate a DuckDB SQL query to answer the user's question.
 
 {schema_context}
@@ -385,47 +376,77 @@ SQL query:"""
                         lines = generated_sql.split("\n")
                         generated_sql = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
                     st.session_state.generated_sql = generated_sql
+                    st.session_state.query_error = None
+
+                    # Execute immediately
+                    result_df = conn.execute(generated_sql).fetchdf()
+                    st.session_state.query_result = result_df
                 except Exception as e:
-                    st.error(f"Error generating SQL: {e}")
+                    st.session_state.query_error = str(e)
+                    st.session_state.query_result = None
 
-        # Show and edit generated SQL
+        # Show results first (primary focus)
+        if st.session_state.query_result is not None:
+            result_df = st.session_state.query_result
+            st.success(f"Query returned {len(result_df)} rows")
+            st.dataframe(result_df, use_container_width=True, hide_index=True)
+
+            # Offer to visualize if numeric columns exist
+            numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
+            if len(numeric_cols) > 0 and len(result_df) > 1:
+                st.subheader("Quick Visualization")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    chart_type = st.selectbox("Chart Type", ["Bar", "Line", "Pie"])
+                with col2:
+                    all_cols = result_df.columns.tolist()
+                    x_col = st.selectbox("X-axis / Labels", all_cols)
+                with col3:
+                    y_col = st.selectbox("Y-axis / Values", numeric_cols)
+
+                if chart_type == "Bar":
+                    fig = px.bar(result_df, x=x_col, y=y_col)
+                elif chart_type == "Line":
+                    fig = px.line(result_df, x=x_col, y=y_col)
+                else:
+                    fig = px.pie(result_df, names=x_col, values=y_col)
+
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Show error if any
+        if st.session_state.query_error:
+            st.error(f"Query error: {st.session_state.query_error}")
+
+        # Show SQL in expander (secondary - for review/modification)
         if st.session_state.generated_sql:
-            st.subheader("Generated SQL")
-            edited_sql = st.text_area(
-                "Edit SQL if needed",
-                value=st.session_state.generated_sql,
-                height=150,
-                label_visibility="collapsed"
-            )
+            with st.expander("Review / Modify SQL", expanded=st.session_state.query_error is not None):
+                edited_sql = st.text_area(
+                    "SQL Query",
+                    value=st.session_state.generated_sql,
+                    height=150,
+                    label_visibility="collapsed"
+                )
 
-            if st.button("Execute Query"):
-                with st.spinner("Running query..."):
-                    try:
-                        result_df = conn.execute(edited_sql).fetchdf()
-                        st.success(f"Query returned {len(result_df)} rows")
-                        st.dataframe(result_df, width='stretch', hide_index=True)
+                if st.button("Re-run Modified Query"):
+                    with st.spinner("Running query..."):
+                        try:
+                            result_df = conn.execute(edited_sql).fetchdf()
+                            st.session_state.query_result = result_df
+                            st.session_state.generated_sql = edited_sql
+                            st.session_state.query_error = None
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Query error: {e}")
 
-                        # Offer to visualize if numeric columns exist
-                        numeric_cols = result_df.select_dtypes(include=['number']).columns.tolist()
-                        if len(numeric_cols) > 0 and len(result_df) > 1:
-                            st.subheader("Quick Visualization")
-                            chart_type = st.selectbox("Chart Type", ["Bar", "Line", "Pie"])
-
-                            all_cols = result_df.columns.tolist()
-                            x_col = st.selectbox("X-axis / Labels", all_cols)
-                            y_col = st.selectbox("Y-axis / Values", numeric_cols)
-
-                            if chart_type == "Bar":
-                                fig = px.bar(result_df, x=x_col, y=y_col)
-                            elif chart_type == "Line":
-                                fig = px.line(result_df, x=x_col, y=y_col)
-                            else:
-                                fig = px.pie(result_df, names=x_col, values=y_col)
-
-                            st.plotly_chart(fig, width='stretch')
-
-                    except Exception as e:
-                        st.error(f"Query error: {e}")
+        # Schema reference at bottom
+        with st.expander("View Database Schema"):
+            schema_info = run_query("""
+                SELECT table_schema, table_name, column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema IN ('staging', 'business', 'metrics')
+                ORDER BY table_schema, table_name, ordinal_position
+            """)
+            st.dataframe(schema_info, use_container_width=True, hide_index=True)
 
 # Footer
 st.sidebar.divider()
