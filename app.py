@@ -394,7 +394,7 @@ elif page == "Detailed Attendance":
             end_date = st.date_input("End Date", value=pd.Timestamp.now())
 
         # Daily summary metrics
-        daily_metrics = run_query(f"""
+        daily_metrics = run_query_safe("""
             SELECT
                 SUM(total_records) as total_records,
                 SUM(present_count) as present,
@@ -403,8 +403,8 @@ elif page == "Detailed Attendance":
                 ROUND(SUM(ot_hours), 1) as ot_hours,
                 ROUND(100.0 * SUM(present_count) / NULLIF(SUM(total_records), 0), 1) as attendance_rate
             FROM metrics.attendance_daily_metrics
-            WHERE attendance_date BETWEEN '{start_date}' AND '{end_date}'
-        """)
+            WHERE attendance_date BETWEEN ? AND ?
+        """, [start_date, end_date])
 
         if len(daily_metrics) > 0:
             m = daily_metrics.iloc[0]
@@ -422,13 +422,13 @@ elif page == "Detailed Attendance":
 
         with col1:
             st.subheader("Daily Attendance Trend")
-            trend = run_query(f"""
+            trend = run_query_safe("""
                 SELECT attendance_date, SUM(present_count) as present, SUM(absent_count) as absent
                 FROM metrics.attendance_daily_metrics
-                WHERE attendance_date BETWEEN '{start_date}' AND '{end_date}'
+                WHERE attendance_date BETWEEN ? AND ?
                 GROUP BY attendance_date
                 ORDER BY attendance_date
-            """)
+            """, [start_date, end_date])
             if len(trend) > 0:
                 fig = px.line(trend, x='attendance_date', y=['present', 'absent'],
                             labels={'value': 'Count', 'attendance_date': 'Date', 'variable': 'Status'})
@@ -437,18 +437,18 @@ elif page == "Detailed Attendance":
 
         with col2:
             st.subheader("Attendance by Department")
-            dept_att = run_query(f"""
+            dept_att = run_query_safe("""
                 SELECT department_name,
                        SUM(present_count) as present,
                        SUM(absent_count) as absent,
                        ROUND(100.0 * SUM(present_count) / NULLIF(SUM(total_records), 0), 1) as rate
                 FROM metrics.attendance_daily_metrics
-                WHERE attendance_date BETWEEN '{start_date}' AND '{end_date}'
+                WHERE attendance_date BETWEEN ? AND ?
                   AND department_name IS NOT NULL
                 GROUP BY department_name
                 ORDER BY rate DESC
                 LIMIT 10
-            """)
+            """, [start_date, end_date])
             if len(dept_att) > 0:
                 fig = px.bar(dept_att, x='rate', y='department_name', orientation='h',
                             labels={'rate': 'Attendance Rate (%)', 'department_name': 'Department'},
@@ -472,23 +472,26 @@ elif page == "Detailed Attendance":
         with col3:
             late_filter = st.checkbox("Show Late Only")
 
-        query = f"""
+        query = """
             SELECT attendance_date, employee_name, department_name, attendance_status,
                    is_late, late_by_mins, total_hours, ot_hours
             FROM business.daily_attendance_detail
-            WHERE attendance_date BETWEEN '{start_date}' AND '{end_date}'
+            WHERE attendance_date BETWEEN ? AND ?
         """
+        params = [start_date, end_date]
 
         if dept_filter != "All":
-            query += f" AND department_name = '{dept_filter}'"
+            query += " AND department_name = ?"
+            params.append(dept_filter)
         if status_filter != "All":
-            query += f" AND attendance_status = '{status_filter}'"
+            query += " AND attendance_status = ?"
+            params.append(status_filter)
         if late_filter:
             query += " AND is_late = TRUE"
 
         query += " ORDER BY attendance_date DESC, employee_name LIMIT 500"
 
-        records = run_query(query)
+        records = run_query_safe(query, params)
         st.dataframe(records, use_container_width=True, hide_index=True)
         st.caption(f"Showing {len(records)} records")
 
